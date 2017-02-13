@@ -17,7 +17,6 @@ class AtariGymEnvironment:
         self.total_reward = 0
         self.done = True
         self.frame_skip = frame_skip
-        self.env.reset()
 
     def step(self, action):
         next_obs, reward, done, _ = self.env.step(action)
@@ -60,7 +59,6 @@ class GymEnvironment:
         self.obs = np.zeros(self.state_dim)
         self.total_reward = 0
         self.done = True
-        self.env.reset()
 
     def step(self, action):
         next_obs, reward, done, _ = self.env.step(action)
@@ -69,7 +67,7 @@ class GymEnvironment:
         self.done = done
         return next_obs, reward, done
 
-    def reset(self, random_starts=3):
+    def reset(self, random_starts=0):
         self.obs = self.env.reset()
         self.total_reward = 0
         for i in range(random_starts):
