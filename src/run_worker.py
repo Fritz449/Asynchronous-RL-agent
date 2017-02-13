@@ -147,7 +147,7 @@ if __name__ == '__main__':
             cursor_value = sess.run(deq_cursor)
             if cursor_value == FLAGS.buffer_max_size - 1:
                 sess.run(fill_queue)
-            if xp_replay.size().eval() >= FLAGS.buffer_max_size - 500 and FLAGS.dddqn_learning_rate > 0:
+            if FLAGS.dddqn_learning_rate > 0 and xp_replay.size().eval() >= FLAGS.buffer_max_size - 500:
                 sess.run(delete_tr_op)
             if cursor_value % (FLAGS.n_steps * FLAGS.epoch_time) == 0 and size.eval() * 2 > FLAGS.buffer_max_size:
                 time_to_update = True
@@ -163,11 +163,12 @@ if __name__ == '__main__':
                 break
 
         states_batch = np.array(states)
-        next_states_batch = np.array(next_states)
         actions_batch = np.array(actions)
         rewards_batch = np.array(rewards)
-        terminals_batch = np.array(terminals)
+
         if FLAGS.dddqn_learning_rate > 0:
+            next_states_batch = np.array(next_states)
+            terminals_batch = np.array(terminals)
             sess.run(return_to_xp_op,
                      feed_dict={new_states: states_batch, new_next_states: next_states_batch,
                                 new_actions: actions_batch, new_rewards: rewards_batch, new_terminals: terminals_batch})
