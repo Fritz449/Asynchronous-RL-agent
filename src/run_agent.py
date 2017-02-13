@@ -1,36 +1,35 @@
 import tensorflow as tf
-from environments import GymEnvironment, AtariGymEnvironment, ALEEnvironment
+from environments import GymEnvironment, AtariGymEnvironment
 from utils import launch_workers, cluster_spec
 from network import Network
 import numpy as np
 
 flags = tf.flags
 flags.DEFINE_integer('thread', 0, 'number of thread')
-flags.DEFINE_string('env_class', 'atari-gym', 'environment type')
-flags.DEFINE_string('env_name', 'PongDeterministic-v3', 'gym environment name')
+flags.DEFINE_string('env_class', 'gym', 'environment type')
+flags.DEFINE_string('env_name', 'CartPole-v0', 'gym environment name')
 flags.DEFINE_integer('n_threads', 6, 'number of workers')
 flags.DEFINE_integer('port', 12332, 'starting port')
 flags.DEFINE_integer('n_steps', 20, 'agent parameter')
 flags.DEFINE_float('gamma', 0.99, 'agent parameter')
-flags.DEFINE_float('dddqn_learning_rate', 0.00025, 'network parameter')
-flags.DEFINE_float('a3c_learning_rate', 0.0000, 'network parameter')
+flags.DEFINE_float('dddqn_learning_rate', 0.0, 'network parameter')
+flags.DEFINE_float('a3c_learning_rate', 0.01, 'network parameter')
 flags.DEFINE_integer('batch_size', 32, 'network parameter')
 flags.DEFINE_integer('buffer_max_size', 30000, 'agent parameter')
-flags.DEFINE_integer('epoch_time', 1000, 'agent parameter')
+flags.DEFINE_integer('epoch_time', 100, 'agent parameter')
 flags.DEFINE_float('critic_loss_coef', 0.5, 'agent parameter')
 flags.DEFINE_float('entropy_coef', 0.001, 'agent parameter')
 flags.DEFINE_float('beta_1', 0.9, 'optimizer parameter')
 flags.DEFINE_float('beta_2', 0.999, 'optimizer parameter')
 FLAGS = flags.FLAGS
 import os
+
 if __name__ == '__main__':
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
     if FLAGS.env_class == 'gym':
         env_class = GymEnvironment
     if FLAGS.env_class == 'atari-gym':
         env_class = AtariGymEnvironment
-    if FLAGS.env_class == 'ale':
-        env_class = ALEEnvironment
     test_environment = env_class(FLAGS.env_name)
     state_dim = test_environment.get_state_dim()
     action_dim = test_environment.get_action_dim()

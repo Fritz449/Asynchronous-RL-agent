@@ -58,8 +58,8 @@ class Network:
 
     def create_fc_model(self):
         # This is the place where neural network model initialized
-        self.hidden = fc_layer(self.name + '_hidden', self.state_in, 128)
-        # self.hidden = self.state_in
+        # self.hidden = fc_layer(self.name + '_hidden', self.state_in, 128)
+        self.hidden = self.state_in
         self.policy = tf.nn.softmax(fc_layer(self.name + '_policy', self.hidden, self.action_dim, elu=False))
         self.value = fc_layer(self.name + '_value', self.hidden, 1, elu=False)
         self.q_values = self.entropy_coef * (tf.log(self.policy + 1e-18) +
@@ -67,7 +67,8 @@ class Network:
                                                                     keep_dims=True), [1, self.action_dim]))
                                              + self.value)
 
-    def __init__(self, name, sess, state_dim, action_dim, batch_size=32, critic_loss_coef=0.5, entropy_coef=0.001, initialize=True):
+    def __init__(self, name, sess, state_dim, action_dim, batch_size=32, critic_loss_coef=0.5, entropy_coef=0.001,
+                 initialize=True):
 
         # Assign network features
         self.sess = sess
@@ -194,4 +195,4 @@ class Network:
             new_weight = new_weights[i]
             placeholder = self.update_placeholders[i]
             update_op = self.update_weights_ops[i]
-            self.sess.run(update_op, feed_dict={placeholder: (1-coef) * weight.eval() + coef * new_weight.eval()})
+            self.sess.run(update_op, feed_dict={placeholder: (1 - coef) * weight.eval() + coef * new_weight.eval()})

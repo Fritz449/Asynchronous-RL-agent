@@ -2,7 +2,7 @@ import tensorflow as tf
 from run_agent import FLAGS
 from utils import cluster_spec
 from network import Network
-from environments import GymEnvironment, AtariGymEnvironment, ALEEnvironment
+from environments import GymEnvironment, AtariGymEnvironment
 import numpy as np
 import scipy.signal
 import time
@@ -16,9 +16,10 @@ def get_adam_updates(shared_variables, update_steps, learning_rate, beta1=0.9, b
         decrements.append(velocity.eval() * learning_rate / ((momentum.eval() ** 0.5) + epsilon))
     return decrements
 
-import os
-if __name__ == '__main__':
 
+import os
+
+if __name__ == '__main__':
 
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
     spec = tf.train.ClusterSpec(cluster_spec(n_workers=FLAGS.n_threads))
@@ -31,8 +32,6 @@ if __name__ == '__main__':
         env_class = GymEnvironment
     if FLAGS.env_class == 'atari-gym':
         env_class = AtariGymEnvironment
-    if FLAGS.env_class == 'ale':
-        env_class = ALEEnvironment
     environment = env_class(FLAGS.env_name)
     obs = environment.reset()
     test_env = env_class(FLAGS.env_name)
@@ -46,8 +45,8 @@ if __name__ == '__main__':
                                               shapes=[state_dim, state_dim, (), (), ()],
                                               names=['state', 'next_state', 'action', 'reward', 'terminal'],
                                               shared_name='xp_replay')
-            new_state = tf.placeholder(tf.float32,state_dim)
-            new_next_state = tf.placeholder(tf.float32,state_dim)
+            new_state = tf.placeholder(tf.float32, state_dim)
+            new_next_state = tf.placeholder(tf.float32, state_dim)
             new_action = tf.placeholder(tf.int32)
             new_reward = tf.placeholder(tf.float32)
             new_terminal = tf.placeholder(tf.int32)
@@ -106,7 +105,8 @@ if __name__ == '__main__':
                     shared_momentum[i] * FLAGS.beta_2 + (1 - FLAGS.beta_2) * gradient_phs[i] * gradient_phs[i]))
                 steps_phs.append(tf.placeholder(tf.float32, shape=w_shape))
                 update_weight_ops.append(shared_weights[i].assign(shared_weights[i] - steps_phs[i]))
-            update_target_op = [sh_t.assign(0.001*sh_w+0.999*sh_t) for sh_w, sh_t in zip(shared_weights, shared_targets)]
+            update_target_op = [sh_t.assign(0.001 * sh_w + 0.999 * sh_t) for sh_w, sh_t in
+                                zip(shared_weights, shared_targets)]
             deq_cursor = queue_indexes.dequeue()
             scalar_int_ph = tf.placeholder(tf.int32, shape=())
             fill_queue = queue_indexes.enqueue_many(tf.range(0, FLAGS.buffer_max_size))
@@ -134,11 +134,11 @@ if __name__ == '__main__':
         states = []
         actions = []
         rewards = []
-        next_states=[]
-        terminals=[]
+        next_states = []
+        terminals = []
         for _ in range(FLAGS.n_steps):
-            eps = max(0., min(1, 1 - (update_steps.eval() - FLAGS.epoch_time*10) / (FLAGS.epoch_time * 50)))
-            #eps = 0
+            eps = max(0., min(1, 1 - (update_steps.eval() - FLAGS.epoch_time * 10) / (FLAGS.epoch_time * 50)))
+            # eps = 0
             action = network.get_action(np.copy(obs), eps)
 
             actions_made[action] += 1
@@ -147,9 +147,9 @@ if __name__ == '__main__':
             cursor_value = sess.run(deq_cursor)
             if cursor_value == FLAGS.buffer_max_size - 1:
                 sess.run(fill_queue)
-            if xp_replay.size().eval()>=FLAGS.buffer_max_size - 500 and FLAGS.dddqn_learning_rate>0:
+            if xp_replay.size().eval() >= FLAGS.buffer_max_size - 500 and FLAGS.dddqn_learning_rate > 0:
                 sess.run(delete_tr_op)
-            if cursor_value % (FLAGS.n_steps*FLAGS.epoch_time) == 0 and size.eval() * 2 > FLAGS.buffer_max_size:
+            if cursor_value % (FLAGS.n_steps * FLAGS.epoch_time) == 0 and size.eval() * 2 > FLAGS.buffer_max_size:
                 time_to_update = True
 
             states.append(np.copy(obs))
@@ -195,12 +195,12 @@ if __name__ == '__main__':
                                                                                     batch['action'], batch['reward'], \
                                                                                     batch['terminal']
             sess.run(return_to_xp_op,
-                    feed_dict={new_states: state_batch, new_next_states: next_state_batch,
-                               new_actions: action_batch, new_rewards: reward_batch, new_terminals: done_batch})
+                     feed_dict={new_states: state_batch, new_next_states: next_state_batch,
+                                new_actions: action_batch, new_rewards: reward_batch, new_terminals: done_batch})
             output_target = target_network.compute_q_values(next_state_batch)
             q_argmax_online = np.argmax(network.compute_q_values(next_state_batch), axis=1)
             q_max_batch = output_target[np.arange(FLAGS.batch_size), q_argmax_online]
-            #q_max_batch = np.max(output_target, axis=1)
+            # q_max_batch = np.max(output_target, axis=1)
 
             target_q_batch = (reward_batch + (1 - done_batch) * FLAGS.gamma * q_max_batch)
             # print (target_q_batch)
@@ -213,10 +213,10 @@ if __name__ == '__main__':
         sess.run(update_target_op)
         target_network.assign_weights(shared_targets)
         if time_to_update:
-            index=0
+            index = 0
             for weight in shared_weights:
                 np.save('weight_{}'.format(index), weight.eval())
-                index+=1
+                index += 1
             total_reward = 0
             for _ in range(1):
                 obs = test_env.reset()
@@ -230,7 +230,8 @@ if __name__ == '__main__':
                     tot_r += reward
                 total_reward += test_env.get_total_reward()
             print("Mean reward of the test episodes:", total_reward / 1.,
-                  np.sum(np.absolute(shared_weights[-2].eval())), np.sum(np.absolute(shared_weights[-1].eval())),max(0.1, min(1, 1 - (update_steps.eval() - FLAGS.epoch_time * 10) / (FLAGS.epoch_time * 50))))
+                  np.sum(np.absolute(shared_weights[-2].eval())), np.sum(np.absolute(shared_weights[-1].eval())),
+                  max(0.1, min(1, 1 - (update_steps.eval() - FLAGS.epoch_time * 10) / (FLAGS.epoch_time * 50))))
 
         if done:
             total_reward = environment.get_total_reward()
