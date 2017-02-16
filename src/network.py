@@ -58,8 +58,7 @@ class Network:
 
     def create_fc_model(self):
         # This is the place where neural network model initialized
-        # self.hidden = fc_layer(self.name + '_hidden', self.state_in, 128)
-        self.hidden = self.state_in
+        self.hidden = fc_layer(self.name + '_hidden', self.state_in, 128)
         self.policy = tf.nn.softmax(fc_layer(self.name + '_policy', self.hidden, self.action_dim, elu=False))
         self.value = fc_layer(self.name + '_value', self.hidden, 1, elu=False)
         self.q_values = self.entropy_coef * (tf.log(self.policy + 1e-18) +
@@ -94,7 +93,12 @@ class Network:
         else:
             self.create_fc_model()
 
-        self.weights = [t for t in tf.trainable_variables() if t.name.startswith('global/' + self.name)]
+        self.weights = [t for t in tf.trainable_variables() if t.name.startswith(self.name)] + \
+                       [t for t in tf.trainable_variables() if t.name.startswith('global/' + self.name)]
+
+        self.reg_loss=0
+        for weight in self.weights:
+            self.reg_loss+=0.001*tf.reduce_sum(weight**2)
         self.weights = sorted(self.weights, key=lambda x: x.name)
         self.update_weights_ops = []
         self.update_placeholders = []
@@ -123,10 +127,10 @@ class Network:
         actor_loss = -1. * (log_prob * advantage + entropy_coef * entropy)
         self.actor_loss = tf.reduce_sum(actor_loss)
 
-        self.total_a3c_loss = self.actor_loss + critic_loss_coef * self.critic_loss
+        self.total_a3c_loss = self.actor_loss + critic_loss_coef * self.critic_loss + self.reg_loss
         q_value = tf.gather_nd(self.q_values, indices)
         self.td_q_error = self.q_value_target - q_value
-        self.dqn_loss = tf.reduce_sum(self.weights_loss * (self.td_q_error ** 2))
+        self.dqn_loss = tf.reduce_sum(self.weights_loss * (self.td_q_error ** 2)) + self.reg_loss
 
         self.optimizer = tf.train.GradientDescentOptimizer(1)
         gradients_a3c = self.optimizer.compute_gradients(self.total_a3c_loss)
@@ -195,4 +199,4 @@ class Network:
             new_weight = new_weights[i]
             placeholder = self.update_placeholders[i]
             update_op = self.update_weights_ops[i]
-            self.sess.run(update_op, feed_dict={placeholder: (1 - coef) * weight.eval() + coef * new_weight.eval()})
+            self.sess.run(update_op, feed_dict={placeholder: (1 - coef) * weight.eval() + coef * new_weight})
