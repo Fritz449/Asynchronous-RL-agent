@@ -1,0 +1,9 @@
+opencv_python==3.2.0.6
+gym==0.7.3
+joblib==0.10.3
+numpy==1.12.0
+redis==2.10.5
+scipy==0.18.1
+six==1.10.0
+tensorflow==1.0.0rc1
+cv2==1.0
