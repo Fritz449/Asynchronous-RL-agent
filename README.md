@@ -7,14 +7,14 @@ Also it contains additional hacks, including:
 
 This agent is implemented using distributed Tensorflow + Redis for synchronising experience replay and weights
 
-Requirements:
--Numpy
--Scipy
--Tensorflow
--Redis (and redis server)
--Joblib
--Gym
--OpenCV (for screen preprocessing)
+Requirements:  
+-Numpy  
+-Scipy  
+-Tensorflow  
+-Redis (and redis server)  
+-Joblib  
+-Gym  
+-OpenCV (for screen preprocessing)  
 
 To run:
 ```
