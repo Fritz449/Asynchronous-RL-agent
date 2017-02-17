@@ -7,8 +7,10 @@ def weight_variable(name, shape):
     if len(shape) == 4:
         return tf.get_variable(name, shape=shape, initializer=tf.contrib.layers.xavier_initializer_conv2d(uniform=True),
                                dtype=tf.float32)
-    else:
+    if len(shape) == 2:
         return tf.get_variable(name, shape=shape, initializer=tf.contrib.layers.xavier_initializer(uniform=True),
+                               dtype=tf.float32)
+    return tf.get_variable(name, shape=shape, initializer=tf.random_normal_initializer(),
                                dtype=tf.float32)
 
 
@@ -40,12 +42,24 @@ def fc_layer(name, input_tensor, n_out, elu=True):
     return result
 
 
+def embedding_layer(name, input_tensor, number_of_dim=5, max_number=256):
+    int_input = tf.to_int32(input_tensor)
+    embeddings = weight_variable(name + '_weights', (input_tensor.get_shape()[1], max_number, number_of_dim))
+    indices = tf.stack(
+        [tf.tile(tf.range(input_tensor.get_shape()[1]), [tf.shape(input_tensor)[0]]), tf.reshape(int_input, [-1])],
+        axis=1)
+    output = tf.reshape(tf.gather_nd(embeddings, indices),
+                        tf.stack([tf.shape(input_tensor)[0], input_tensor.get_shape()[1] * number_of_dim]))
+    return output
+
+
 class Network:
     def create_conv_model(self):
         # This is the place where neural network model initialized
         self.l1 = conv_layer(self.name + '_conv1', self.state_in, (8, 8, 4, 32), strides=4)
         self.l2 = conv_layer(self.name + '_conv2', self.l1, (4, 4, 32, 64), strides=2)
-        self.l3 = conv_layer(self.name + '_conv3', self.l2, (3, 3, 64, 64), strides=1)
+        # self.l3 = conv_layer(self.name + '_conv3', self.l2, (3, 3, 64, 64), strides=1)
+        self.l3 = self.l2
         self.h = tf.reshape(self.l3, [tf.shape(self.l3)[0],
                                       int(self.l3.get_shape()[1] * self.l3.get_shape()[2] * self.l3.get_shape()[3])])
         self.hidden = fc_layer(self.name + '_hidden', self.h, 512)
@@ -58,6 +72,7 @@ class Network:
 
     def create_fc_model(self):
         # This is the place where neural network model initialized
+        #self.embeddings = embedding_layer(self.name + '_embeddings', self.state_in)
         self.hidden = fc_layer(self.name + '_hidden', self.state_in, 128)
         self.policy = tf.nn.softmax(fc_layer(self.name + '_policy', self.hidden, self.action_dim, elu=False))
         self.value = fc_layer(self.name + '_value', self.hidden, 1, elu=False)
@@ -96,9 +111,9 @@ class Network:
         self.weights = [t for t in tf.trainable_variables() if t.name.startswith(self.name)] + \
                        [t for t in tf.trainable_variables() if t.name.startswith('global/' + self.name)]
 
-        self.reg_loss=0
+        self.reg_loss = 0
         for weight in self.weights:
-            self.reg_loss+=0.001*tf.reduce_sum(weight**2)
+            self.reg_loss += 0.001 * tf.reduce_sum(weight ** 2)
         self.weights = sorted(self.weights, key=lambda x: x.name)
         self.update_weights_ops = []
         self.update_placeholders = []

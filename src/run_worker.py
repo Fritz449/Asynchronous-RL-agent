@@ -2,7 +2,7 @@ import tensorflow as tf
 from run_agent import FLAGS
 from utils import cluster_spec, dump_object, load_object
 from network import Network
-from environments import GymEnvironment, AtariGymEnvironment, RamGymEnvironment
+from environments import GymEnvironment, AtariGymEnvironment
 import numpy as np
 import scipy.signal
 import time
@@ -112,8 +112,6 @@ if __name__ == '__main__':
         env_class = GymEnvironment
     if FLAGS.env_class == 'atari-gym':
         env_class = AtariGymEnvironment
-    if FLAGS.env_class == 'ram-atari-gym':
-        env_class = RamGymEnvironment
     environment = env_class(FLAGS.env_name)
     test_env = env_class(FLAGS.env_name)
     state_dim = environment.get_state_dim()
@@ -146,8 +144,8 @@ if __name__ == '__main__':
         next_states = []
         terminals = []
         for _ in range(FLAGS.n_steps):
-            # eps = max(0., min(1, 1 - (update_steps.eval() - FLAGS.epoch_time * 10) / (FLAGS.epoch_time * 50)))
-            eps = 0
+            eps = max(0.1, min(1, 1 - (load_object(variables_server.get('update_steps')) - 5000.) / 30000.))
+            #eps = 0.1
             action = network.get_action(np.copy(obs), eps)
 
             actions_made[action] += 1
@@ -203,7 +201,7 @@ if __name__ == '__main__':
             total_test_reward = 0
             obs = test_env.reset()
             print(target_network.compute_q_values(obs.reshape((1,) + obs.shape)))
-            for _ in range(1):
+            for _ in range(FLAGS.test_games):
                 done_test = False
                 tot_r = 0
                 while not done_test:
@@ -212,7 +210,7 @@ if __name__ == '__main__':
                     obs = next_obs
                 total_test_reward += test_env.get_total_reward()
                 obs = test_env.reset()
-            print("Mean reward of the test episodes:", total_test_reward / 1.,
+            print("Mean reward of the test episodes:", total_test_reward / float(FLAGS.test_games),
                   np.sum(np.absolute(load_object(variables_server.get('target_weight_1')))))
             save_agent(variables_server)
 

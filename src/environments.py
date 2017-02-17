@@ -12,7 +12,7 @@ class AtariGymEnvironment:
         self.height = height
         self.buffer_size = buffer_size
         self.env = gym.make(name)
-        self.state_dim = (width, height, buffer_size)
+        self.state_dim = (height, width, buffer_size)
         self.buf = np.zeros(self.state_dim)
         self.total_reward = 0
         self.done = True
@@ -69,45 +69,6 @@ class GymEnvironment:
 
     def reset(self, random_starts=0):
         self.obs = self.env.reset()
-        self.total_reward = 0
-        for i in range(random_starts):
-            self.step(np.random.randint(0, self.env.action_space.n))
-        return self.obs
-
-    def get_state_dim(self):
-        return self.state_dim
-
-    def done(self):
-        return self.done
-
-    def get_action_dim(self):
-        return self.env.action_space.n
-
-    def get_total_reward(self):
-        return self.total_reward
-
-    def get_observation(self):
-        return self.obs
-
-class RamGymEnvironment:
-    def __init__(self, name):
-        self.name = name
-        self.env = gym.make(name)
-        self.state_dim = self.env.observation_space.shape
-        self.obs = np.zeros(self.state_dim)
-        self.total_reward = 0
-        self.done = True
-
-    def step(self, action):
-        next_obs, reward, done, _ = self.env.step(action)
-        next_obs= next_obs.astype('float32')/255.
-        self.obs = next_obs
-        self.total_reward += reward
-        self.done = done
-        return next_obs, reward, done
-
-    def reset(self, random_starts=0):
-        self.obs = self.env.reset().astype('float32')/255.
         self.total_reward = 0
         for i in range(random_starts):
             self.step(np.random.randint(0, self.env.action_space.n))
