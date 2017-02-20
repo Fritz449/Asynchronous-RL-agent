@@ -17,6 +17,7 @@ class AtariGymEnvironment:
         self.total_reward = 0
         self.done = True
         self.frame_skip = frame_skip
+        self.time_stamp = 0
 
     def step(self, action):
         next_obs, reward, done, _ = self.env.step(action)
@@ -25,11 +26,15 @@ class AtariGymEnvironment:
         self.total_reward += reward
         reward = np.clip(reward, -1, 1)
         self.done = done
+        self.time_stamp += 1
+        if self.time_stamp > 10000:
+            self.done = True
         return self.buf, reward, done
 
     def reset(self, random_starts=10):
         self.env.reset()
         self.total_reward = 0
+        self.time_stamp = 0
         self.buf = np.zeros(self.state_dim)
         for i in range(np.random.randint(random_starts)):
             self.step(np.random.randint(0, self.env.action_space.n))
@@ -59,15 +64,21 @@ class GymEnvironment:
         self.obs = np.zeros(self.state_dim)
         self.total_reward = 0
         self.done = True
+        self.time_stamp = 0
 
     def step(self, action):
         next_obs, reward, done, _ = self.env.step(action)
         self.obs = next_obs
         self.total_reward += reward
         self.done = done
-        return next_obs, reward, done
+        self.time_stamp += 1
+        #print (self.time_stamp)
+        if self.time_stamp > 1500:
+            self.done = True
+        return next_obs, reward, self.done
 
     def reset(self, random_starts=0):
+        self.time_stamp = 0
         self.obs = self.env.reset()
         self.total_reward = 0
         for i in range(random_starts):

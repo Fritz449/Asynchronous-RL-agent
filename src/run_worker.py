@@ -144,8 +144,8 @@ if __name__ == '__main__':
         next_states = []
         terminals = []
         for _ in range(FLAGS.n_steps):
-            eps = max(0.1, min(1, 1 - (load_object(variables_server.get('update_steps')) - 5000.) / 30000.))
-            #eps = 0.1
+            # eps = max(0.1, min(1, 1 - (load_object(variables_server.get('update_steps')) - 5000.) / 30000.))
+            eps = 0.1
             action = network.get_action(np.copy(obs), eps)
 
             actions_made[action] += 1
@@ -155,7 +155,8 @@ if __name__ == '__main__':
             rewards.append(reward)
             next_states.append(np.copy(next_obs))
             terminals.append(done)
-            add_to_xp(variables_server, obs, action, reward, next_obs, done)
+            if FLAGS.dddqn_learning_rate > 0:
+                add_to_xp(variables_server, obs, action, reward, next_obs, done)
             obs = next_obs
             total_reward += reward
             if done:
@@ -182,9 +183,12 @@ if __name__ == '__main__':
             target_network.assign_weights(get_target_weights(variables_server))
             # Sample transitions
             state_batch, action_batch, reward_batch, next_state_batch, terminal_batch = get_xp_batch(variables_server)
-            output_target = target_network.compute_q_values(next_state_batch)
-            q_argmax_online = np.argmax(network.compute_q_values(next_state_batch), axis=1)
-            q_max_batch = output_target[np.arange(FLAGS.batch_size), q_argmax_online]
+            if FLAGS.double_dqn:
+                output_target = target_network.compute_q_values(next_state_batch)
+                q_argmax_online = np.argmax(network.compute_q_values(next_state_batch), axis=1)
+                q_max_batch = output_target[np.arange(FLAGS.batch_size), q_argmax_online]
+            else:
+                q_max_batch = np.max(target_network.compute_q_values(next_state_batch),axis=1)
 
             target_q_batch = (reward_batch + (1 - terminal_batch) * FLAGS.gamma * q_max_batch)
             gradients, loss, td_error = network.compute_dqn_outputs(target_q_batch, state_batch, action_batch, None)
@@ -192,10 +196,12 @@ if __name__ == '__main__':
             if update_step % FLAGS.epoch_time == 0:
                 time_to_update = True
             network.assign_weights(get_shared_weights(variables_server))
-
-        update_target_weights(variables_server)
+        if FLAGS.soft_update:
+            update_target_weights(variables_server)
 
         if time_to_update:
+            if not FLAGS.soft_update:
+                update_target_weights(variables_server,coef=1.)
             target_network.assign_weights(get_target_weights(variables_server))
             index = 0
             total_test_reward = 0
@@ -217,10 +223,10 @@ if __name__ == '__main__':
         if done:
             total_reward = environment.get_total_reward()
             increment_shared_variable(variables_server, 'episodes')
-            # print('Reward of an episode ', load_object(variables_server.get('episodes')), 'is ' + str(total_reward),
-            #       actions_made,
-            #       load_object(variables_server.get('update_steps')),
-            #       )
+            print('Reward of an episode ', load_object(variables_server.get('episodes')), 'is ' + str(total_reward),
+                  actions_made,
+                  load_object(variables_server.get('update_steps')),
+                  )
             tot_r = 0
             actions_made = np.zeros(action_dim)
             obs = environment.reset()
