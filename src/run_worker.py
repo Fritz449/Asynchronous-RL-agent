@@ -223,10 +223,10 @@ if __name__ == '__main__':
         if done:
             total_reward = environment.get_total_reward()
             increment_shared_variable(variables_server, 'episodes')
-            print('Reward of an episode ', load_object(variables_server.get('episodes')), 'is ' + str(total_reward),
-                  actions_made,
-                  load_object(variables_server.get('update_steps')),
-                  )
+            # print('Reward of an episode ', load_object(variables_server.get('episodes')), 'is ' + str(total_reward),
+            #       actions_made,
+            #       load_object(variables_server.get('update_steps')),
+            #       )
             tot_r = 0
             actions_made = np.zeros(action_dim)
             obs = environment.reset()

@@ -11,7 +11,7 @@ def weight_variable(name, shape):
         return tf.get_variable(name, shape=shape, initializer=tf.contrib.layers.xavier_initializer(uniform=True),
                                dtype=tf.float32)
     return tf.get_variable(name, shape=shape, initializer=tf.random_normal_initializer(),
-                               dtype=tf.float32)
+                           dtype=tf.float32)
 
 
 def bias_variable(name, shape):
@@ -65,21 +65,21 @@ class Network:
         self.hidden = fc_layer(self.name + '_hidden', self.h, 512)
         self.policy = tf.nn.softmax(fc_layer(self.name + '_policy', self.hidden, self.action_dim, elu=False))
         self.value = fc_layer(self.name + '_value', self.hidden, 1, elu=False)
-        self.q_values = self.entropy_coef * (tf.log(self.policy + 1e-8) +
-                                             (tf.tile(tf.reduce_sum(tf.log(self.policy + 1e-8) * self.policy, axis=[1],
-                                                                    keep_dims=True), [1, self.action_dim]))
-                                             + self.value)
+        self.q_values = self.entropy_coef * (tf.log(self.policy + 1e-18) +
+                                             tf.tile(tf.reduce_sum(tf.log(self.policy + 1e-18) * self.policy,
+                                                                   axis=[1], keep_dims=True),
+                                                     [1, self.action_dim])) + self.value
 
     def create_fc_model(self):
         # This is the place where neural network model initialized
-        #self.embeddings = embedding_layer(self.name + '_embeddings', self.state_in)
+        # self.embeddings = embedding_layer(self.name + '_embeddings', self.state_in)
         self.hidden = fc_layer(self.name + '_hidden', self.state_in, 128)
         self.policy = tf.nn.softmax(fc_layer(self.name + '_policy', self.hidden, self.action_dim, elu=False))
         self.value = fc_layer(self.name + '_value', self.hidden, 1, elu=False)
         self.q_values = self.entropy_coef * (tf.log(self.policy + 1e-18) +
-                                             (tf.tile(tf.reduce_sum(tf.log(self.policy + 1e-18) * self.policy, axis=[1],
-                                                                    keep_dims=True), [1, self.action_dim]))
-                                             + self.value)
+                                             tf.tile(tf.reduce_sum(tf.log(self.policy + 1e-18) * self.policy,
+                                                                   axis=[1], keep_dims=True),
+                                                     [1, self.action_dim])) + self.value
 
     def __init__(self, name, sess, state_dim, action_dim, batch_size=32, critic_loss_coef=0.5, entropy_coef=0.001,
                  initialize=True):
