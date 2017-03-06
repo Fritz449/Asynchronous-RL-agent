@@ -12,7 +12,7 @@ class AtariGymEnvironment:
         self.height = height
         self.buffer_size = buffer_size
         self.env = gym.make(name)
-        self.state_dim = (height, width, buffer_size)
+        self.state_dim = (buffer_size, height, width)
         self.buf = np.zeros(self.state_dim)
         self.total_reward = 0
         self.done = True
@@ -21,8 +21,8 @@ class AtariGymEnvironment:
 
     def step(self, action):
         next_obs, reward, done, _ = self.env.step(action)
-        self.buf = np.roll(self.buf, 1, axis=2)
-        self.buf[:, :, 0] = cv2.resize(cv2.cvtColor(next_obs, cv2.COLOR_RGB2GRAY), (self.width, self.height)) / 255.
+        self.buf = np.roll(self.buf, 1, axis=0)
+        self.buf[0] = cv2.resize(cv2.cvtColor(np.copy(next_obs), cv2.COLOR_RGB2GRAY), (self.width, self.height)) / 255.
         self.total_reward += reward
         reward = np.clip(reward, -1, 1)
         self.done = done
@@ -36,7 +36,7 @@ class AtariGymEnvironment:
         self.total_reward = 0
         self.time_stamp = 0
         self.buf = np.zeros(self.state_dim)
-        for i in range(np.random.randint(random_starts)):
+        for i in range(random_starts):
             self.step(np.random.randint(0, self.env.action_space.n))
         return self.buf
 

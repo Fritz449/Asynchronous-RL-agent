@@ -1,4 +1,3 @@
-import tensorflow as tf
 from run_agent import FLAGS
 from utils import cluster_spec, dump_object, load_object
 from network import Network
@@ -7,7 +6,6 @@ import numpy as np
 import scipy.signal
 import time
 from redis import Redis
-
 
 def apply_adam_updates(variables_server, gradients, learning_rate, epsilon=1e-6):
     update_steps = increment_shared_variable(variables_server, 'update_steps')
@@ -96,16 +94,15 @@ def save_agent(variables_server):
     target_weights = get_target_weights(variables_server)
     for i, weight in enumerate(target_weights):
         np.save(FLAGS.save_name + '/weight_{}'.format(i), weight)
-
+        momentum = load_object(variables_server.get('momentum_{}'.format(i)))
+        velocity = load_object(variables_server.get('velocity_{}'.format(i)))
+        np.save(FLAGS.save_name + '/momentum_{}'.format(i), momentum)
+        np.save(FLAGS.save_name + '/velocity_{}'.format(i), velocity)
 
 import os
 
 if __name__ == '__main__':
 
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-    spec = tf.train.ClusterSpec(cluster_spec(n_workers=FLAGS.n_threads, port=FLAGS.port))
-    server = tf.train.Server(spec, job_name='worker', task_index=FLAGS.thread)
-    sess = tf.InteractiveSession(server.target)
     time.sleep(3)
 
     if FLAGS.env_class == 'gym':
@@ -118,17 +115,12 @@ if __name__ == '__main__':
     action_dim = environment.get_action_dim()
 
     network_parameters = (state_dim, action_dim, FLAGS.batch_size, FLAGS.critic_loss_coef, FLAGS.entropy_coef)
-
-    with tf.device(tf.train.replica_device_setter(1, worker_device='job:worker/task:{}'.format(FLAGS.thread))):
-        with tf.variable_scope("global"):
-            network = Network('thread_{}'.format(FLAGS.thread), sess, *network_parameters, initialize=True)
-    with tf.device(tf.train.replica_device_setter(1, worker_device='job:ps/task:0')):
-        with tf.variable_scope("global"):
-            target_network = Network('target_network', sess, *network_parameters, initialize=True)
+    network = Network('thread_{}'.format(FLAGS.thread), *network_parameters, initialize=True)
+    target_network = Network('target_network', *network_parameters, initialize=True)
 
     print('Networks of thread_{} initialized'.format(FLAGS.thread))
     variables_server = Redis(port=12000)
-
+    variables_server.set("time", dump_object(time.time()))
     weights = network.weights
 
     network.assign_weights(get_shared_weights(variables_server))
@@ -136,6 +128,7 @@ if __name__ == '__main__':
     total_reward = 0
     actions_made = np.zeros(action_dim)
     obs = environment.reset()
+    local_step=0
     while True:
         time_to_update = False
         states = []
@@ -145,7 +138,7 @@ if __name__ == '__main__':
         terminals = []
         for _ in range(FLAGS.n_steps):
             # eps = max(0.1, min(1, 1 - (load_object(variables_server.get('update_steps')) - 5000.) / 30000.))
-            eps = 0.1
+            eps = 0.
             action = network.get_action(np.copy(obs), eps)
 
             actions_made[action] += 1
@@ -155,7 +148,7 @@ if __name__ == '__main__':
             rewards.append(reward)
             next_states.append(np.copy(next_obs))
             terminals.append(done)
-            if FLAGS.dddqn_learning_rate > 0:
+            if FLAGS.dddqn_learning_rate >= 0:
                 add_to_xp(variables_server, obs, action, reward, next_obs, done)
             obs = next_obs
             total_reward += reward
@@ -171,8 +164,8 @@ if __name__ == '__main__':
             rewards.append(network.compute_value(obs.reshape((1,) + obs.shape)))
         values_batch = scipy.signal.lfilter([1], [1, -FLAGS.gamma], rewards[::-1], axis=0)[::-1].astype('float32')[:-1]
 
-        if FLAGS.a3c_learning_rate > 0:
-            gradients, loss, td_error = network.compute_a2c_outputs(values_batch, states_batch, actions_batch)
+        if FLAGS.a3c_learning_rate > 0 and variables_server.llen("transitions") * 2 > FLAGS.buffer_max_size:
+            gradients = network.compute_a2c_outputs(values_batch, states_batch, actions_batch)
             update_step = apply_adam_updates(variables_server, gradients, FLAGS.a3c_learning_rate)
             if update_step % FLAGS.epoch_time == 0:
                 time_to_update = True
@@ -191,18 +184,21 @@ if __name__ == '__main__':
                 q_max_batch = np.max(target_network.compute_q_values(next_state_batch),axis=1)
 
             target_q_batch = (reward_batch + (1 - terminal_batch) * FLAGS.gamma * q_max_batch)
-            gradients, loss, td_error = network.compute_dqn_outputs(target_q_batch, state_batch, action_batch, None)
+            gradients = network.compute_dqn_outputs(target_q_batch, state_batch, action_batch)
             update_step = apply_adam_updates(variables_server, gradients, FLAGS.dddqn_learning_rate)
+            network.assign_weights(get_shared_weights(variables_server))
             if update_step % FLAGS.epoch_time == 0:
                 time_to_update = True
-            network.assign_weights(get_shared_weights(variables_server))
+
         if FLAGS.soft_update:
             update_target_weights(variables_server)
 
         if time_to_update:
             if not FLAGS.soft_update:
-                update_target_weights(variables_server,coef=1.)
+                update_target_weights(variables_server, coef=1.)
             target_network.assign_weights(get_target_weights(variables_server))
+            t = time.time()
+            time_epoch = t - load_object(variables_server.get("time"))
             index = 0
             total_test_reward = 0
             obs = test_env.reset()
@@ -211,14 +207,28 @@ if __name__ == '__main__':
                 done_test = False
                 tot_r = 0
                 while not done_test:
-                    action = target_network.get_action(np.copy(obs), 0, True)
+                    action = target_network.get_action(np.copy(obs), 0.0)
                     next_obs, reward, done_test = test_env.step(action)
                     obs = next_obs
                 total_test_reward += test_env.get_total_reward()
                 obs = test_env.reset()
-            print("Mean reward of the test episodes:", total_test_reward / float(FLAGS.test_games),
-                  np.sum(np.absolute(load_object(variables_server.get('target_weight_1')))))
+            print("Mean reward of the test episodes:", total_test_reward / float(FLAGS.test_games))
+
+            total_test_reward = 0
+            obs = test_env.reset()
+            for _ in range(FLAGS.test_games):
+                done_test = False
+                tot_r = 0
+                while not done_test:
+                    action = target_network.get_action(np.copy(obs), 0.0, True)
+                    next_obs, reward, done_test = test_env.step(action)
+                    obs = next_obs
+                total_test_reward += test_env.get_total_reward()
+                obs = test_env.reset()
+            print("Mean reward of the hard test episodes:", total_test_reward / float(FLAGS.test_games),
+                  np.sum(np.absolute(load_object(variables_server.get('target_weight_1')))), time_epoch)
             save_agent(variables_server)
+            variables_server.set("time", dump_object(time.time()))
 
         if done:
             total_reward = environment.get_total_reward()
@@ -230,3 +240,4 @@ if __name__ == '__main__':
             tot_r = 0
             actions_made = np.zeros(action_dim)
             obs = environment.reset()
+        local_step+=1

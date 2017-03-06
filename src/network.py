@@ -1,91 +1,59 @@
 import numpy as np
-import tensorflow as tf
+from keras import backend as Theano
+from keras.layers import Dense, Input, Convolution2D, Flatten, merge
+from keras.layers.normalization import BatchNormalization
+from keras.models import Model
+from keras.optimizers import Adadelta, RMSprop, Adam, SGD
+from keras.regularizers import l1, l2
+from keras.initializations import normal, glorot_uniform
 import os
-
-
-def weight_variable(name, shape):
-    if len(shape) == 4:
-        return tf.get_variable(name, shape=shape, initializer=tf.contrib.layers.xavier_initializer_conv2d(uniform=True),
-                               dtype=tf.float32)
-    if len(shape) == 2:
-        return tf.get_variable(name, shape=shape, initializer=tf.contrib.layers.xavier_initializer(uniform=True),
-                               dtype=tf.float32)
-    return tf.get_variable(name, shape=shape, initializer=tf.random_normal_initializer(),
-                           dtype=tf.float32)
-
-
-def bias_variable(name, shape):
-    return tf.get_variable(name, initializer=tf.constant(0.1, shape=shape), dtype=tf.float32)
-
-
-def conv_layer(name, input_tensor, kernel_shape, elu=True, max_pooling=None, strides=1):
-    kernel = weight_variable(name + "_kernel", kernel_shape)
-    biases = bias_variable(name + "_bias", (kernel_shape[3],))
-    convolution = tf.nn.conv2d(input_tensor, kernel, strides=[1, strides, strides, 1], padding='SAME')
-    result = convolution + biases
-    if elu:
-        result = tf.nn.elu(result)
-
-    if max_pooling is not None:
-        return tf.nn.max_pool(result, ksize=[1, max_pooling, max_pooling, 1],
-                              strides=[1, max_pooling, max_pooling, 1],
-                              padding='SAME')
-    return result
-
-
-def fc_layer(name, input_tensor, n_out, elu=True):
-    weights = weight_variable(name + "_weights", shape=(int(input_tensor.get_shape()[1]), n_out))
-    biases = bias_variable(name + "_bias", shape=(n_out,))
-    result = tf.matmul(input_tensor, weights) + biases
-    if elu:
-        result = tf.nn.elu(result)
-    return result
-
-
-def embedding_layer(name, input_tensor, number_of_dim=5, max_number=256):
-    int_input = tf.to_int32(input_tensor)
-    embeddings = weight_variable(name + '_weights', (input_tensor.get_shape()[1], max_number, number_of_dim))
-    indices = tf.stack(
-        [tf.tile(tf.range(input_tensor.get_shape()[1]), [tf.shape(input_tensor)[0]]), tf.reshape(int_input, [-1])],
-        axis=1)
-    output = tf.reshape(tf.gather_nd(embeddings, indices),
-                        tf.stack([tf.shape(input_tensor)[0], input_tensor.get_shape()[1] * number_of_dim]))
-    return output
 
 
 class Network:
     def create_conv_model(self):
         # This is the place where neural network model initialized
-        self.l1 = conv_layer(self.name + '_conv1', self.state_in, (8, 8, 4, 32), strides=4)
-        self.l2 = conv_layer(self.name + '_conv2', self.l1, (4, 4, 32, 64), strides=2)
-        # self.l3 = conv_layer(self.name + '_conv3', self.l2, (3, 3, 64, 64), strides=1)
+        init = 'glorot_uniform'
+        self.state_in = Input(self.state_dim)
+        self.l1 = Convolution2D(32, 8, 8, activation='elu', init=init, subsample=(4, 4), border_mode='same')(
+            self.state_in)
+        self.l2 = Convolution2D(64, 4, 4, activation='elu', init=init, subsample=(2, 2), border_mode='same')(
+            self.l1)
+        # self.l3 = Convolution2D(64, 3, 3, activation='relu', init=init, subsample=(1, 1), border_mode='same')(
+        #     self.l2)
         self.l3 = self.l2
-        self.h = tf.reshape(self.l3, [tf.shape(self.l3)[0],
-                                      int(self.l3.get_shape()[1] * self.l3.get_shape()[2] * self.l3.get_shape()[3])])
-        self.hidden = fc_layer(self.name + '_hidden', self.h, 512)
-        self.policy = tf.nn.softmax(fc_layer(self.name + '_policy', self.hidden, self.action_dim, elu=False))
-        self.value = fc_layer(self.name + '_value', self.hidden, 1, elu=False)
-        self.q_values = self.entropy_coef * (tf.log(self.policy + 1e-18) +
-                                             tf.tile(tf.reduce_sum(tf.log(self.policy + 1e-18) * self.policy,
-                                                                   axis=[1], keep_dims=True),
-                                                     [1, self.action_dim])) + self.value
+        self.h = Flatten()(self.l3)
+        self.hidden = Dense(256, init=init, activation='elu')(self.h)
+        self.value = Dense(1, init=init)(self.hidden)
+        self.policy = Dense(self.action_dim, init=init, activation='softmax')(self.hidden)
+        self.q_values = self.entropy_coef * (Theano.log(self.policy + 1e-18) -
+                                             Theano.tile(Theano.sum(Theano.log(self.policy + 1e-18) * self.policy,
+                                                                    axis=[1], keepdims=True), (1, self.action_dim)))
+        self.q_values = self.q_values + Theano.tile(self.value, (1, self.action_dim))
+        self.model = Model(self.state_in, output=[self.policy, self.value])
 
     def create_fc_model(self):
         # This is the place where neural network model initialized
-        # self.embeddings = embedding_layer(self.name + '_embeddings', self.state_in)
-        self.hidden = fc_layer(self.name + '_hidden', self.state_in, 128)
-        self.policy = tf.nn.softmax(fc_layer(self.name + '_policy', self.hidden, self.action_dim, elu=False))
-        self.value = fc_layer(self.name + '_value', self.hidden, 1, elu=False)
-        self.q_values = self.entropy_coef * (tf.log(self.policy + 1e-18) +
-                                             tf.tile(tf.reduce_sum(tf.log(self.policy + 1e-18) * self.policy,
-                                                                   axis=[1], keep_dims=True),
-                                                     [1, self.action_dim])) + self.value
+        init = 'glorot_uniform'
+        self.state_in = Input(self.state_dim)
+        self.hidden = Dense(256, init=init, activation='elu')(self.state_in)
+        self.value = Dense(1)(self.hidden)
+        self.policy = Dense(self.action_dim, init=init, activation='softmax')(self.hidden)
 
-    def __init__(self, name, sess, state_dim, action_dim, batch_size=32, critic_loss_coef=0.5, entropy_coef=0.001,
+        self.q_values = self.entropy_coef * (Theano.log(self.policy + 1e-18) -
+                                             Theano.tile(Theano.sum(Theano.log(self.policy + 1e-18) * self.policy,
+                                                                    axis=[1], keepdims=True), (1, self.action_dim)))
+        # print (type(Theano.sum(Theano.log(self.policy + 1e-18) * self.policy,
+        #                                                 axis=[1], keepdims=True)))
+        # print(Theano.function([self.state_in], [Theano.sum(Theano.log(self.policy + 1e-18) * self.policy,
+        #                                                 axis=[1], keepdims=True)])([np.zeros((32,) + self.state_dim)])[0].shape)
+        # 1/0
+        self.q_values = self.q_values + Theano.tile(self.value, (1, self.action_dim))
+        self.model = Model(self.state_in, output=[self.policy, self.value])
+
+    def __init__(self, name, state_dim, action_dim, batch_size=32, critic_loss_coef=0.5, entropy_coef=0.001,
                  initialize=True):
 
         # Assign network features
-        self.sess = sess
         self.name = name
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -93,14 +61,9 @@ class Network:
         self.critic_loss_coef = critic_loss_coef
         self.entropy_coef = entropy_coef
         # Create input for training
-        with tf.variable_scope(self.name):
-            self.state_in = tf.placeholder(shape=((None,) + self.state_dim), dtype='float32')
-            self.actions = tf.placeholder(shape=(None,), dtype='int32')
-            self.value_target = tf.placeholder(shape=(None,), dtype='float32')
-            # These weights are for weighted update
-            self.weights_loss = tf.placeholder(shape=(None,),
-                                               dtype='float32')
-            self.q_value_target = tf.placeholder(shape=(None,), dtype='float32')
+        self.actions = Input(shape=(None,), dtype='int32')
+        self.value_target = Input(shape=(None,), dtype='float32')
+        self.q_values_target = Input(shape=(None,), dtype='float32')
 
         # Initialize model
         if len(state_dim) == 3:
@@ -108,91 +71,79 @@ class Network:
         else:
             self.create_fc_model()
 
-        self.weights = [t for t in tf.trainable_variables() if t.name.startswith(self.name)] + \
-                       [t for t in tf.trainable_variables() if t.name.startswith('global/' + self.name)]
-
+        self.weights = self.model.trainable_weights
         self.reg_loss = 0
         for weight in self.weights:
-            self.reg_loss += 0.001 * tf.reduce_sum(weight ** 2)
+            self.reg_loss += 0.001 * Theano.sum(weight ** 2)
         self.weights = sorted(self.weights, key=lambda x: x.name)
-        self.update_weights_ops = []
-        self.update_placeholders = []
-        for index in range(len(self.weights)):
-            weight = self.weights[index]
-            placeholder = tf.placeholder('float32', shape=weight.get_shape())
-            self.update_placeholders.append(placeholder)
-            self.update_weights_ops.append(weight.assign(placeholder))
+        # print ([x.name for x in self.weights])
         # Get q-values for corresponding actions
         action_opinion = self.policy
-        value_opinion = tf.reshape(self.value, [-1])
+        value_opinion = Theano.reshape(self.value, [-1])
 
         # CRITIC
         self.td_error = self.value_target - value_opinion
-        self.critic_loss = 0.5 * tf.reduce_sum(self.td_error ** 2)
+        self.critic_loss = 0.5 * Theano.sum(self.td_error ** 2)
 
         # ACTOR
         # entropy terms
-        log_prob_all = tf.log(action_opinion + 1e-8)
-        entropy = -1. * tf.reduce_sum(log_prob_all * action_opinion, axis=[1])
+        log_prob_all = Theano.log(action_opinion + 1e-18)
+        entropy = -1. * Theano.sum(log_prob_all * action_opinion, axis=[1])
         # objective part
-        batch_numbering = tf.range(tf.shape(action_opinion)[0])
-        indices = tf.stack([batch_numbering, self.actions], axis=1)
-        log_prob = tf.gather_nd(log_prob_all, indices)
-        advantage = tf.stop_gradient(self.td_error)
+        action_mask = Theano.T.eq(Theano.T.arange(self.action_dim).reshape((1, -1)),
+                                  self.actions.reshape((-1, 1))).astype(Theano.T.config.floatX)
+        log_prob = Theano.T.sum(log_prob_all * action_mask, axis=1, keepdims=True)
+        advantage = Theano.stop_gradient(self.td_error)
         actor_loss = -1. * (log_prob * advantage + entropy_coef * entropy)
-        self.actor_loss = tf.reduce_sum(actor_loss)
+        self.actor_loss = Theano.sum(actor_loss)
 
         self.total_a3c_loss = self.actor_loss + critic_loss_coef * self.critic_loss + self.reg_loss
-        q_value = tf.gather_nd(self.q_values, indices)
-        self.td_q_error = self.q_value_target - q_value
-        self.dqn_loss = tf.reduce_sum(self.weights_loss * (self.td_q_error ** 2)) + self.reg_loss
+        q_value = Theano.T.sum(self.q_values * action_mask, axis=1, keepdims=True)
+        self.td_q_error = self.q_values_target - q_value
+        self.dqn_loss = Theano.sum((self.td_q_error ** 2)) + self.reg_loss
 
-        self.optimizer = tf.train.GradientDescentOptimizer(1)
-        gradients_a3c = self.optimizer.compute_gradients(self.total_a3c_loss)
-        gradients_a3c = [gr for gr in gradients_a3c if gr[0] is not None]
-        gradients_a3c = sorted(gradients_a3c, key=lambda x: x[1].name)
-        gradients_a3c = [g[0] for g in gradients_a3c]
-        for i in range(len(gradients_a3c)):
-            gradients_a3c[i] = tf.clip_by_norm(gradients_a3c[i], 10)
-
+        self.optimizer = SGD(lr=1)
+        gradients_a3c = Theano.gradients(self.total_a3c_loss, self.weights)
         self.gradients_a3c = gradients_a3c
-        self.dqn_optimizer = tf.train.GradientDescentOptimizer(1)
-        gradients_dqn = self.dqn_optimizer.compute_gradients(self.dqn_loss)
-        gradients_dqn = [gr for gr in gradients_dqn if gr[0] is not None]
-        gradients_dqn = sorted(gradients_dqn, key=lambda x: x[1].name)
-        gradients_dqn = [g[0] for g in gradients_dqn]
-        for i in range(len(gradients_dqn)):
-            gradients_dqn[i] = tf.clip_by_norm(gradients_dqn[i], 10)
+
+        gradients_dqn = Theano.gradients(self.dqn_loss, self.weights)
         self.gradients_dqn = gradients_dqn
-        if initialize:
-            sess.run(tf.variables_initializer(self.weights))
+
+        self.a2c_outputs = Theano.function([self.state_in, self.actions, self.value_target],
+                                           self.gradients_a3c)
+
+        self.dqn_outputs = Theano.function([self.state_in, self.actions, self.q_values_target],
+                                           self.gradients_dqn)
+
+        self.get_q_values = Theano.function([self.state_in], [self.q_values])
+        self.get_value = Theano.function([self.state_in], [self.value])
+        self.get_policy = Theano.function([self.state_in], [self.policy])
 
     def compute_a2c_outputs(self, value_target, state_in, actions):
-        return self.sess.run([self.gradients_a3c, self.total_a3c_loss, self.td_error], feed_dict={self.actions: actions,
-                                                                                                  self.state_in: state_in,
-                                                                                                  self.value_target: value_target,
-                                                                                                  })
+        actions = actions.reshape(actions.shape + (1,))
+        value_target = value_target.reshape((1,) + value_target.shape)
+        return self.a2c_outputs([state_in, actions, value_target])
 
-    def compute_dqn_outputs(self, q_value_target, state_in, actions, weights):
-        if weights is None:
-            weights = np.ones((state_in.shape[0],))
-        return self.sess.run([self.gradients_dqn, self.dqn_loss, self.td_q_error], feed_dict={self.actions: actions,
-                                                                                              self.state_in: state_in,
-                                                                                              self.q_value_target: q_value_target,
-                                                                                              self.weights_loss: weights
-                                                                                              })
+    def compute_dqn_outputs(self, q_value_target, state_in, actions):
+        actions = actions.reshape(actions.shape + (1,))
+        q_value_target = q_value_target.reshape(q_value_target.shape + (1,))
+        return self.dqn_outputs([state_in, actions, q_value_target])
 
-    def compute_q_values(self, states_input):
-        return self.q_values.eval(feed_dict={self.state_in: states_input})
+    def compute_q_values(self, state_input):
+        return self.get_q_values([state_input])[0]
 
-    def compute_value(self, obs):
-        return self.value.eval(feed_dict={self.state_in: obs})[0]
+    def compute_value(self, state_input):
+        return self.get_value([state_input])[0]
 
-    def get_action(self, obs, eps=0., greedy=False):
+    def get_action(self, state, eps=0., greedy=False):
         if np.random.rand() <= eps:
             return np.random.randint(self.action_dim)
         else:
-            probs = self.sess.run([self.policy], feed_dict={self.state_in: obs.reshape((1,) + obs.shape)})[0][0]
+            probs = self.get_policy([state.reshape((1,) + state.shape)])[0][0]
+            # print (probs, 'policy')
+            # print (self.get_value([state.reshape((1,) + state.shape)]))
+            # print (self.get_q_values([state.reshape((1,) + state.shape)])[0], 'qs')
+            # 1/0
             if greedy:
                 return np.argmax(probs)
             probs = probs - np.finfo(np.float32).epsneg
@@ -212,6 +163,4 @@ class Network:
         for i in range(len(self.weights)):
             weight = self.weights[i]
             new_weight = new_weights[i]
-            placeholder = self.update_placeholders[i]
-            update_op = self.update_weights_ops[i]
-            self.sess.run(update_op, feed_dict={placeholder: (1 - coef) * weight.eval() + coef * new_weight})
+            weight.set_value((coef * new_weight + (1 - coef) * weight.get_value()).astype('float32'))
